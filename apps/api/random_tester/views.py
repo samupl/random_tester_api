@@ -1,3 +1,4 @@
+import random
 from functools import wraps
 
 import requests
@@ -7,8 +8,10 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from requests.auth import HTTPBasicAuth
 from slackclient import SlackClient
+import threading
 
 from apps.api.random_tester.tools import get_random_tester_for_channel
+from apps.api.random_tester.waiting_funnies import WAITING_FUNNIES
 
 
 def slack_token_required(func):
@@ -23,25 +26,14 @@ def slack_token_required(func):
 
 
 def user_error(msg):
-    return JsonResponse({
+    return {
         'response_type': 'ephemeral',
         'text': msg
-    })
+    }
 
 
-@csrf_exempt
-@slack_token_required
-def random_tester(request):
-    ticket_id = request.POST.get('text')
-    channel_id = request.POST['channel_id']
-    if not ticket_id:
-        return JsonResponse({
-            "response_type": "ephemeral",
-            'text': (
-                'You need to provide ticket number'
-            )
-        })
-
+def pick_random_tester(channel_id, ticket_id, response_url):
+    print(response_url)
     sc = SlackClient(settings.SLACK_OAUTH_TOKEN)
 
     response = sc.api_call(
@@ -59,35 +51,76 @@ def random_tester(request):
         settings.JIRA_PASSWORD,
     )
     ticket_url = f'{settings.JIRA_BASE_URL}/{ticket_id}'
-    print(ticket_url)
     resp = requests.get(
         ticket_url,
         auth=auth,
     )
     if resp.status_code != 200:
-        return user_error('Ticket not found')
+        requests.post(
+            response_url,
+            json=user_error('Ticket not found')
+        )
+        return
 
     ticket_response = resp.json()
     ticket_status = ticket_response['fields']['status']['name']
     if ticket_status != settings.EXPECTED_TICKET_STATUS:
-        return user_error(
-            f'Ticket status it not "{settings.EXPECTED_TICKET_STATUS}". '
-            f'Current status: "{ticket_status}"'
+        return requests.post(
+            response_url,
+            json=user_error(
+                f'Ticket status it not "{settings.EXPECTED_TICKET_STATUS}". '
+                f'Current status: "{ticket_status}"'
+            ),
         )
 
     if ticket_response['fields']['assignee']:
-        return user_error('Somebody is already working on this ticket, silly.')
+        return requests.post(
+            response_url,
+            json=user_error('Somebody is already working on this ticket, silly.'),
+        )
 
     members = response['members']
     selected_tester = get_random_tester_for_channel(
         channel_id=channel_id,
         members=members
     )
+    return requests.post(
+        response_url,
+        json={
+            'text': f'Ticket *{ticket_id}* will be tested by...',
+            # 'response_type': 'in_channel',
+            'attachments': [
+                {'image_url': selected_tester.avatar_url},
+                {'text': f'<@{selected_tester.slack_id}>'}
+            ],
+        }
+    )
+
+
+@csrf_exempt
+@slack_token_required
+def random_tester(request):
+    ticket_id = request.POST.get('text')
+    channel_id = request.POST['channel_id']
+    if not ticket_id:
+        return JsonResponse({
+            "response_type": "ephemeral",
+            'text': (
+                'You need to provide ticket number'
+            )
+        })
+
+    t = threading.Thread(target=pick_random_tester, kwargs={
+        'channel_id': channel_id,
+        'ticket_id': ticket_id,
+        'response_url': request.POST['response_url']
+    })
+    t.daemon = True
+    t.start()
+
     return JsonResponse({
-        'text': f'Ticket *{ticket_id}* will be tested by...',
-        'response_type': 'in_channel',
-        'attachments': [
-            {'image_url': selected_tester.avatar_url},
-            {'text': f'<@{selected_tester.slack_id}>'}
-        ],
+        "response_type": "ephemeral",
+        'text': (
+            f'Please wait.\n{random.choice(WAITING_FUNNIES)}'
+        )
     })
