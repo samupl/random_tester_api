@@ -88,7 +88,7 @@ def pick_random_tester(channel_id, ticket_id, response_url):
         response_url,
         json={
             'text': f'Ticket *{ticket_id}* will be tested by...',
-            # 'response_type': 'in_channel',
+            'response_type': 'in_channel',
             'attachments': [
                 {'image_url': selected_tester.avatar_url},
                 {'text': f'<@{selected_tester.slack_id}>'}
