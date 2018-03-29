@@ -33,7 +33,6 @@ def user_error(msg):
 
 
 def pick_random_tester(channel_id, ticket_id, response_url):
-    print(response_url)
     sc = SlackClient(settings.SLACK_OAUTH_TOKEN)
 
     response = sc.api_call(
@@ -51,6 +50,9 @@ def pick_random_tester(channel_id, ticket_id, response_url):
         settings.JIRA_PASSWORD,
     )
     ticket_url = f'{settings.JIRA_BASE_URL}/{ticket_id}'
+    ticket_assignee_url = (
+        f'{settings.JIRA_BASE_URL}/{ticket_id}/assignee'
+    )
     resp = requests.get(
         ticket_url,
         auth=auth,
@@ -84,14 +86,31 @@ def pick_random_tester(channel_id, ticket_id, response_url):
         channel_id=channel_id,
         members=members
     )
+
+    print('Updating ticket...')
+    resp = requests.put(
+        ticket_assignee_url,
+        json={
+            'name': selected_tester.user_name
+        },
+        auth=auth,
+    )
+    print(resp.status_code)
+    print(resp.content)
     return requests.post(
         response_url,
         json={
             'text': f'Ticket *{ticket_id}* will be tested by...',
-            'response_type': 'in_channel',
+            # 'response_type': 'in_channel',
+            "response_type": "ephemeral",
             'attachments': [
-                {'image_url': selected_tester.avatar_url},
-                {'text': f'<@{selected_tester.slack_id}>'}
+                {
+                    'image_url': selected_tester.avatar_url,
+                    'pretext': f'<@{selected_tester.slack_id}>',
+                    'color': '#3da2e2',
+                    'footer': random_motivational_line(),
+                },
+                # {'text': f'<@{selected_tester.slack_id}>'}
             ],
         }
     )
@@ -124,3 +143,13 @@ def random_tester(request):
             f'Please wait.\n{random.choice(WAITING_FUNNIES)}'
         )
     })
+
+
+def random_motivational_line():
+    return random.choice([
+        'Go get it!',
+        'Have fun!',
+        'Go get it tiger!',
+        'Have at it!',
+        'You can do it!'
+    ])
