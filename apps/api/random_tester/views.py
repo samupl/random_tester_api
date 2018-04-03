@@ -87,22 +87,18 @@ def pick_random_tester(channel_id, ticket_id, response_url):
         members=members
     )
 
-    print('Updating ticket...')
-    resp = requests.put(
+    requests.put(
         ticket_assignee_url,
         json={
             'name': selected_tester.user_name
         },
         auth=auth,
     )
-    print(resp.status_code)
-    print(resp.content)
     return requests.post(
         response_url,
         json={
             'text': f'Ticket *{ticket_id}* will be tested by...',
-            # 'response_type': 'in_channel',
-            "response_type": "ephemeral",
+            'response_type': 'in_channel',
             'attachments': [
                 {
                     'image_url': selected_tester.avatar_url,
